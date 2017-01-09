@@ -1,4 +1,4 @@
-﻿console.log("Version 0.2.0");
+console.log("Version 0.2.0");
 
 // Load up all dependencies
 var AWS = require('aws-sdk');
@@ -98,60 +98,80 @@ function processRecord(record, callback) {
 
 // getTargetBuckets
 //
-// Gets the tags for the named bucket, and
+// Gets target buckets from Evnironment variable or
+// gets the tags for the named bucket, and
 // from those tags, finds the "TargetBucket" tag.
 // Once found, it calls the callback function passing
 // the tag value as the single parameter.
 function getTargetBuckets(bucketName, callback) {
-    console.log("Getting tags for bucket '" + bucketName + "'");
-    
-    var s3 = createS3();
-    s3.getBucketTagging({
-        Bucket: bucketName
-    }, function (err, data) {
-        if (err) {
-            if (err.code == 'NoSuchTagSet') {
-                // No tags on the bucket, so the bucket is not configured properly.
-                callback("Source bucket '" + bucketName + "' is missing 'TargetBucket' tag.", null);
-            } else {
-                // Some other error
-                callback(err, null);
-            }
-            return;
-        }
-        
-        console.log(data);
-        var tags = data.TagSet;
-        
-        console.log("Looking for 'TargetBucket' tag");
-        for (var i = 0; i < tags.length; ++i) {
-            var tag = tags[i];
-            if (tag.Key == 'TargetBucket') {
-                console.log("Tag 'TargetBucket' found with value '" + tag.Value + "'");
-                
-                var tagValue = tag.Value.trim();
-                var buckets = tag.Value.split(' ');
-                
-                var targets = [];
-                
-                for (var i = 0; i < buckets.length; ++i) {
-                    var bucketSpec = buckets[i].trim();
-                    if (bucketSpec.length == 0)
-                        continue;
-                    
-                    var specParts = bucketSpec.split('@');
-                    
-                    var bucketName = specParts[0];
-                    var regionName = specParts[1]
 
-                    targets.push({ bucketName: bucketName, regionName: regionName });
+    console.log("Getting tags for bucket '" + bucketName + "'");
+
+    if (process.env.TARGET_BUCKETS && process.env.TARGET_BUCKETS.length) {
+        
+        // use Environment Variable
+        var targets = [];
+        console.log("Target buckets specified in Environment Variable TARGET_BUCKETS: '" + process.env.TARGET_BUCKETS + "'");
+        process.env.TARGET_BUCKETS.split(',').forEach(function(bucketSpec){
+            targets.push(getBucketInfoFromSpec(bucketSpec));
+        })
+        callback(null, targets)
+        
+    } else {
+
+        // Use tags
+        var s3 = createS3();
+        s3.getBucketTagging({
+            Bucket: bucketName
+        }, function (err, data) {
+            if (err) {
+                if (err.code == 'NoSuchTagSet') {
+                    // No tags on the bucket, so the bucket is not configured properly.
+                    callback("Source bucket '" + bucketName + "' is missing 'TargetBucket' tag.", null);
+                } else {
+                    // Some other error
+                    callback(err, null);
                 }
-                
-                callback(null, targets);
                 return;
             }
-        }
-        
-        callback("Tag 'TargetBucket' not found", null);
-    });
+            
+            console.log(data);
+            var tags = data.TagSet;
+            
+            console.log("Looking for 'TargetBucket' tag");
+            for (var i = 0; i < tags.length; ++i) {
+                var tag = tags[i];
+                if (tag.Key == 'TargetBucket') {
+                    console.log("Tag 'TargetBucket' found with value '" + tag.Value + "'");
+                    
+                    var tagValue = tag.Value.trim();
+                    var buckets = tag.Value.split(' ');
+                    
+                    var targets = [];
+                    
+                    for (var i = 0; i < buckets.length; ++i) {
+                        var bucketSpec = buckets[i].trim();
+                        if (bucketSpec.length == 0)
+                            continue;
+                        
+                        targets.push(getBucketInfoFromSpec(bucketSpec));
+                    }
+                    
+                    callback(null, targets);
+                    return;
+                }
+            }
+            
+            callback("Tag 'TargetBucket' not found", null);
+        });
+
+    }
+
+}
+
+function getBucketInfoFromSpec(bucketSpec) {
+    var specParts = bucketSpec.split('@');
+    var bucketName = specParts[0];
+    var regionName = specParts[1];
+    return { bucketName: bucketName, regionName: regionName };
 }
